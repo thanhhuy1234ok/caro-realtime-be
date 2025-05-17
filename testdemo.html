@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Caro Real-time</title>
+  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+  <style>
+    body { font-family: sans-serif; }
+    #board {
+      display: grid;
+      grid-template-columns: repeat(20, 30px);
+      margin-top: 20px;
+    }
+    .cell {
+      width: 30px; height: 30px; border: 1px solid #ccc;
+      display: flex; justify-content: center; align-items: center;
+      font-size: 16px; cursor: pointer;
+    }
+    .room-entry {
+      margin: 4px 0;
+    }
+  </style>
+</head>
+<body>
+
+<h2>🎮 Game Caro Real-time</h2>
+
+<input id="username" placeholder="Tên người chơi" />
+<button onclick="createRoom()">Tạo phòng</button>
+
+<input id="roomInput" placeholder="Nhập mã phòng" />
+<button onclick="joinRoom()">Vào phòng</button>
+
+<button onclick="getAvailableRooms()">🔍 Danh sách phòng có sẵn</button>
+
+<h3 id="roomInfo"></h3>
+<div id="roomsList"></div>
+
+<div id="board"></div>
+
+<script>
+  const socket = io("http://localhost:8080");
+
+  let mySymbol = "";
+  let currentTurn = "X";
+  let roomId = "";
+
+  function createBoard() {
+    const board = document.getElementById("board");
+    board.innerHTML = "";
+    for (let y = 0; y < 20; y++) {
+      for (let x = 0; x < 20; x++) {
+        const cell = document.createElement("div");
+        cell.className = "cell";
+        cell.dataset.x = x;
+        cell.dataset.y = y;
+        cell.onclick = () => makeMove(x, y);
+        board.appendChild(cell);
+      }
+    }
+  }
+
+  function createRoom() {
+    const username = document.getElementById("username").value;
+    if (!username) return alert("Hãy nhập tên người chơi!");
+    socket.emit("createRoom", { username }, (res) => {
+      if (res.success) {
+        roomId = res.roomId;
+        document.getElementById("roomInfo").innerText = `Đã tạo phòng: ${roomId}`;
+        createBoard();
+      }
+    });
+  }
+
+  function joinRoom() {
+    const username = document.getElementById("username").value;
+    const inputRoomId = document.getElementById("roomInput").value;
+    if (!username || !inputRoomId) return alert("Điền đủ tên và mã phòng!");
+    socket.emit("joinRoom", { roomId: inputRoomId, username }, (res) => {
+      if (res.success) {
+        roomId = inputRoomId;
+        document.getElementById("roomInfo").innerText = `Đã vào phòng: ${roomId}`;
+        createBoard();
+      } else {
+        alert(res.message);
+      }
+    });
+  }
+
+  function getAvailableRooms() {
+    socket.emit("getAvailableRooms");
+  }
+
+  function makeMove(x, y) {
+    if (mySymbol !== currentTurn) {
+      alert("Chưa đến lượt bạn!");
+      return;
+    }
+    const cell = document.querySelector(`[data-x="${x}"][data-y="${y}"]`);
+    if (cell.textContent) return;
+    socket.emit("makeMove", { roomId, x, y, symbol: mySymbol });
+  }
+
+  // 🎯 Socket Events
+  socket.on("assignSymbol", (symbol) => {
+    mySymbol = symbol;
+    alert(`Bạn là người chơi: ${symbol}`);
+  });
+
+  socket.on("moveMade", ({ x, y, symbol }) => {
+    const cell = document.querySelector(`[data-x="${x}"][data-y="${y}"]`);
+    if (cell) cell.textContent = symbol;
+    currentTurn = symbol === "X" ? "O" : "X";
+  });
+
+  socket.on("gameOver", ({ winner, username }) => {
+    setTimeout(() => {
+      alert(`🎉 Người thắng là ${username} (${winner})`);
+    }, 100);
+  });
+
+  socket.on("playerJoined", (players) => {
+    const info = players.map(p => `${p.username} (${p.symbol})`).join(" vs ");
+    document.getElementById("roomInfo").innerText = `Phòng: ${roomId} | ${info}`;
+  });
+
+  socket.on("playerLeft", () => {
+    alert("⚠️ Người chơi đã rời phòng.");
+  });
+
+  socket.on("availableRooms", (rooms) => {
+    const roomsList = document.getElementById("roomsList");
+    roomsList.innerHTML = "<h4>Phòng đang mở:</h4>";
+    if (rooms.length === 0) {
+      roomsList.innerHTML += "<p>Không có phòng nào mở</p>";
+      return;
+    }
+    rooms.forEach((room) => {
+      const div = document.createElement("div");
+      div.className = "room-entry";
+      div.innerHTML = `Phòng: <b>${room.roomId}</b> | Người: ${room.players.join(", ")} 
+        <button onclick="quickJoin('${room.roomId}')">Tham gia</button>`;
+      roomsList.appendChild(div);
+    });
+  });
+
+  function quickJoin(id) {
+    document.getElementById("roomInput").value = id;
+    joinRoom();
+  }
+</script>
+
+</body>
+</html>
